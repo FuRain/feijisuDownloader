@@ -254,6 +254,10 @@ func startDownload(realLink [][]string) error {
 		}
 	}
 
+    if resourceIndex != 0 {
+        validIndex = resourceIndex
+    }
+
 	if validIndex < 0 {
 		return errors.New("does not valid resource link.")
 	}
@@ -359,6 +363,7 @@ var cpuNumber int
 var startID int
 var endID int
 var url string
+var resourceIndex int
 
 func main() {
 	// argument parse.
@@ -367,6 +372,7 @@ func main() {
 	flag.IntVar(&startID, "s", 1, "start download index. default is 1.")
 	flag.IntVar(&endID, "e", -1, "end download index. default to last.")
 	flag.StringVar(&url, "url", "", "download single link.")
+	flag.IntVar(&resourceIndex, "resource", 0, "select the available resource link number.")
 
 	// flag.StringVar(&aesKey, "k", "", "AES key (base64 encoded or http url)")
 	// flag.StringVar(&url, "u", "", "Url master m3u8")
