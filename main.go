@@ -17,6 +17,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+    "os/exec"
 
 	"feijisu/hlss"
 )
@@ -364,6 +365,7 @@ var startID int
 var endID int
 var url string
 var resourceIndex int
+var isUseFFmpeg bool = false
 
 func main() {
 	// argument parse.
@@ -384,6 +386,13 @@ func main() {
 	// flag.BoolVar(&debugFlag, "debug", false, "Enable debug logs.")
 
 	flag.Parse()
+
+    // Check whether ffmpeg can be used.
+    _, err := exec.LookPath("ffmpeg")
+    if err == nil {
+        isUseFFmpeg = true
+        fmt.Println("found ffmpeg site, use it merge video file.")
+    }
 
     dwnWorkers = 16
 
