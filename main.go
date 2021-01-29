@@ -63,8 +63,6 @@ func downloadCallback(file string, done int, total int) {
 const resourceLink string = "http://t.mtyee.com/ne2/s%s.js"
 const webHome string = "http://www.feijisu5.com/"
 
-var wg sync.WaitGroup
-
 func verifyLink(realLink string) bool {
 	tr := &http.Transport{
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: false},
@@ -355,8 +353,20 @@ func callFF(url string, num int) {
 	if err = h.ExtractVideo(); err != nil {
 		log.Error("%s", err)
 	}
-	// go_log.Println(fileName, " download finish.")
-	// fmt.Println("==================================================")
+
+    // start merge .ts file.
+    if isUseFFmpeg {
+        // if err = h.FFMerge(); err != nil {
+		//     log.Error("%s", err)
+        // }
+        syncChan<-h
+
+    } else {
+        if err = h.AppendMerge(); err != nil {
+		    log.Error("%s", err)
+        }
+    }
+
 }
 
 var id string
@@ -367,6 +377,10 @@ var url string
 var resourceIndex int
 var isUseFFmpeg bool = false
 
+var syncChan chan * hlss.Hlss
+var msgChan chan string
+var syncWorkNum int = 4
+
 func main() {
 	// argument parse.
 	flag.StringVar(&id, "id", "", "please input website video id.")
@@ -375,6 +389,8 @@ func main() {
 	flag.IntVar(&endID, "e", -1, "end download index. default to last.")
 	flag.StringVar(&url, "url", "", "download single link.")
 	flag.IntVar(&resourceIndex, "resource", 0, "select the available resource link number.")
+
+	flag.IntVar(&syncWorkNum, "f", 4, "if use ffmepg merge, it set ffmpeg process count.")
 
 	// flag.StringVar(&aesKey, "k", "", "AES key (base64 encoded or http url)")
 	// flag.StringVar(&url, "u", "", "Url master m3u8")
@@ -459,11 +475,32 @@ func main() {
         }
     }
 
+    wg := sync.WaitGroup{}
+    if isUseFFmpeg {
+        wg.Add(1)
+        go func() {
+            processFFMerge()
+            wg.Done()
+        }()
+    }
+
 	err = startDownload(downLink)
 	if err != nil {
 		fmt.Println(err)
 		return
 	}
+    close(syncChan)
+
+    if isUseFFmpeg {
+        go_log.Println("wait all ffmpeg merge file finish.")
+    }
+
+    for val := range msgChan {
+        go_log.Println(val)
+    }
+
+    wg.Wait()
+
 	return
 }
 
@@ -499,5 +536,43 @@ func singleLinkDownload(url string, fileName string) error {
 	if err = h.ExtractVideo(); err != nil {
         return err
 	}
+    if isUseFFmpeg {
+        if err = h.FFMerge(); err != nil {
+		    log.Error("%s", err)
+        }
+    } else {
+        if err = h.AppendMerge(); err != nil {
+		    log.Error("%s", err)
+        }
+    }
     return nil
+}
+
+func processFFMerge() {
+    wg := sync.WaitGroup{}
+    wg.Add(syncWorkNum)
+    var err error
+    for i := 0; i < syncWorkNum; i ++ {
+        go func() {
+            for {
+                val, ok := <-syncChan
+                if ! ok {
+                    break
+                }
+                if err = val.FFMerge(); err != nil {
+                    log.Error("%s", err)
+                } else {
+                    msgChan <- fmt.Sprintf("%s merge finish!", val.FileAndPath)
+                }
+            }
+            wg.Done()
+        }()
+    }
+    wg.Wait()
+    close(msgChan)
+}
+
+func init() {
+    syncChan = make(chan * hlss.Hlss, 1000)
+    msgChan  = make(chan string, 1000)
 }

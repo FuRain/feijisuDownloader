@@ -8,14 +8,22 @@ import (
 	"io/ioutil"
 	"net/http"
 	"os"
+	"os/exec"
 	"strings"
 
 	"feijisu/downloader"
 	"feijisu/utils"
 	"github.com/evilsocket/islazy/log"
+
+    "io"
+    go_log "log"
+    "runtime/debug"
+    "sync"
 )
 
 type DecryptCallback func(string, int, int)
+
+// const defaultChanCache = 1000
 
 type Hlss struct {
 	baseUrl          string
@@ -38,6 +46,9 @@ type Hlss struct {
 	referer          string
 
     fileDir string
+    FileAndPath string
+    // syncChan chan string
+    // wg sync.WaitGroup
 }
 
 func New(mainUrl string, key []byte, outputfile string, downloadCallback downloader.Callback, decryptCallback DecryptCallback, downloadWorker int, cookieFile string, referer string, keyUrl string, tsPath string) (*Hlss, error) {
@@ -50,6 +61,7 @@ func New(mainUrl string, key []byte, outputfile string, downloadCallback downloa
 		downloadWorker:   downloadWorker,
 		referer:          referer,
         fileDir: tsPath,
+		FileAndPath: outputfile,
 	}
 
 	if cookieFile != "" {
@@ -220,6 +232,7 @@ func (h *Hlss) downloadSegments() error {
 	return nil
 }
 
+const ffmpegPrefix string = "concat:"
 func (h *Hlss) decryptSegments() error {
 	log.Debug("decrypting segments")
 	pout, err := os.Create(h.file)
@@ -270,9 +283,9 @@ func (h *Hlss) ExtractVideo() error {
 		return err
 	}
 
-	if err = h.decryptSegments(); err != nil {
-		return err
-	}
+	// if err = h.decryptSegments(); err != nil {
+	// 	return err
+	// }
 
 	return nil
 }
@@ -314,4 +327,73 @@ func (h *Hlss) setCookies(cookieFile string) error {
 		h.cookies = cookies
 	}
 	return nil
+}
+
+func (h *Hlss) AppendMerge() error {
+    var err error
+	if err = h.decryptSegments(); err != nil {
+		return err
+	}
+    return nil
+}
+
+func (h *Hlss) FFMerge() error {
+    segTsArr := make([]string, len(h.segments))
+    for index, url := range h.segments {
+        name := utils.GetFileFromUrl(url)
+        name = h.fileDir + name
+        segTsArr[index] = name
+    }
+
+    concatStr := strings.Join(segTsArr, "|")
+    cmd := exec.Command("ffmpeg", "-i", ffmpegPrefix + concatStr, h.file)
+    // log.Printf("Running command and waiting for it to finish...")
+    err := cmd.Run()
+    if err != nil {
+        go_log.Printf("Command finished with error: %v\n", err)
+    }
+    // delete .ts file.
+    for _, url := range h.segments {
+        name := utils.GetFileFromUrl(url)
+        name = h.fileDir + name
+        os.Remove(name)
+    }
+
+    return err
+}
+
+func readLog(wg *sync.WaitGroup, out chan string, reader io.ReadCloser) {
+    defer func() {
+        if r := recover(); r != nil {
+            go_log.Println(r, string(debug.Stack()))
+        }
+    }()
+    defer wg.Done()
+    r := bufio.NewReader(reader)
+    for {
+        line, _, err := r.ReadLine()
+        if err == io.EOF || err != nil {
+            return
+        }
+        out <- string(line)
+    }
+}
+
+// RunCommand run shell
+func RunCommand(out chan string, name string, arg ...string) error {
+    cmd := exec.Command(name, arg...)
+    stdout, _ := cmd.StdoutPipe()
+    stderr, _ := cmd.StderrPipe()
+    if err := cmd.Start(); err != nil {
+        return err
+    }
+    wg := sync.WaitGroup{}
+    defer wg.Wait()
+    wg.Add(2)
+    go readLog(&wg, out, stdout)
+    go readLog(&wg, out, stderr)
+    if err := cmd.Wait(); err != nil {
+        return err
+    }
+    return nil
 }
