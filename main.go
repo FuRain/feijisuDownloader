@@ -306,7 +306,13 @@ func startDownload(realLink [][]string) error {
 func callFF(url string, num int) {
 	// defer wg.Done()
 	// go_log.Println("Start downloading Episode ", num)
-	fileName := fmt.Sprintf("%s/%02d.mkv", id, num)
+    var fileName string
+    if videoPrefix != "" {
+	    fileName = fmt.Sprintf("%s/%s_%02d.mkv", id, videoPrefix, num)
+    } else {
+	    fileName = fmt.Sprintf("%s/%02d.mkv", id, num)
+    }
+
 	// cmd := exec.Command("./ffmpeg", "-i", url, fileName)
 	// err := cmd.Run()
 	// if err != nil {
@@ -322,7 +328,6 @@ func callFF(url string, num int) {
 		return
 	}
 
-    /*
 	if isSecondary == false {
 		// resolutions := h.GetResolutions()
 		// fmt.Println("Choose resolution/bandwidth:")
@@ -345,7 +350,6 @@ func callFF(url string, num int) {
 			return
 		}
 	}
-    */
 
 	downloaded = 0
 	decrypted = 0
@@ -382,6 +386,7 @@ var isUseFFmpeg bool = false
 var syncChan chan * hlss.Hlss
 var msgChan chan string
 var syncWorkNum int = 0
+var videoPrefix string
 
 func main() {
 	// argument parse.
@@ -391,6 +396,7 @@ func main() {
 	flag.IntVar(&endID, "e", -1, "end download index. default to last.")
 	flag.StringVar(&url, "url", "", "download single link.")
 	flag.IntVar(&resourceIndex, "resource", 0, "select the available resource link number.")
+	flag.StringVar(&videoPrefix, "o", "", "add download video filename prefix.")
 
 	flag.IntVar(&syncWorkNum, "f", 2, "if use ffmepg merge, it set ffmpeg process count.")
 
@@ -420,7 +426,14 @@ func main() {
 
     // download single link.
     if url != "" {
-        err := singleLinkDownload(url, "one.mkv")
+        var singleVideo string
+        if videoPrefix != "" {
+            singleVideo = videoPrefix + ".mkv"
+        } else {
+            singleVideo = "one.mkv"
+        }
+
+        err := singleLinkDownload(url, singleVideo)
         if err != nil {
             go_log.Fatalln(err)
         }
@@ -526,10 +539,10 @@ func singleLinkDownload(url string, fileName string) error {
 		return err
 	}
 
-    // i := 0
-    // if err = h.SetResolution(i); err != nil {
-    //     return err
-    // }
+    i := 0
+    if err = h.SetResolution(i); err != nil {
+        return err
+    }
 
 	downloaded = 0
 	decrypted = 0
