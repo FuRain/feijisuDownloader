@@ -15,10 +15,7 @@ import (
 	"feijisu/utils"
 	"github.com/evilsocket/islazy/log"
 
-    "io"
     go_log "log"
-    "runtime/debug"
-    "sync"
 )
 
 type DecryptCallback func(string, int, int)
@@ -47,6 +44,7 @@ type Hlss struct {
 
     fileDir string
     FileAndPath string
+    tempFile string
     // syncChan chan string
     // wg sync.WaitGroup
 }
@@ -338,62 +336,34 @@ func (h *Hlss) AppendMerge() error {
 }
 
 func (h *Hlss) FFMerge() error {
-    segTsArr := make([]string, len(h.segments))
-    for index, url := range h.segments {
-        name := utils.GetFileFromUrl(url)
-        name = h.fileDir + name
-        segTsArr[index] = name
-    }
-
-    concatStr := strings.Join(segTsArr, "|")
-    cmd := exec.Command("ffmpeg", "-i", ffmpegPrefix + concatStr, h.file)
+    cmd := exec.Command("ffmpeg", "-i", h.tempFile, "-c", "copy", h.file)
+    defer os.Remove(h.tempFile)
     // log.Printf("Running command and waiting for it to finish...")
-    err := cmd.Run()
+    stdoutStderr, err := cmd.CombinedOutput()
     if err != nil {
         go_log.Printf("Command finished with error: %v\n", err)
-    }
-    // delete .ts file.
-    for _, url := range h.segments {
-        name := utils.GetFileFromUrl(url)
-        name = h.fileDir + name
-        os.Remove(name)
+        go_log.Printf("Cause: %s\n", stdoutStderr)
     }
 
     return err
 }
 
-func readLog(wg *sync.WaitGroup, out chan string, reader io.ReadCloser) {
-    defer func() {
-        if r := recover(); r != nil {
-            go_log.Println(r, string(debug.Stack()))
-        }
-    }()
-    defer wg.Done()
-    r := bufio.NewReader(reader)
-    for {
-        line, _, err := r.ReadLine()
-        if err == io.EOF || err != nil {
-            return
-        }
-        out <- string(line)
-    }
-}
+func (h *Hlss) TempMerge() error {
+    tempFile := h.file + ".ts"
+	pout, err := os.Create(tempFile)
+	if err != nil {
+		return err
+	}
+    defer pout.Close()
+    h.tempFile = tempFile
 
-// RunCommand run shell
-func RunCommand(out chan string, name string, arg ...string) error {
-    cmd := exec.Command(name, arg...)
-    stdout, _ := cmd.StdoutPipe()
-    stderr, _ := cmd.StderrPipe()
-    if err := cmd.Start(); err != nil {
-        return err
-    }
-    wg := sync.WaitGroup{}
-    defer wg.Wait()
-    wg.Add(2)
-    go readLog(&wg, out, stdout)
-    go readLog(&wg, out, stderr)
-    if err := cmd.Wait(); err != nil {
-        return err
+    for _, url := range h.segments {
+		name := utils.GetFileFromUrl(url)
+        name = h.fileDir + name
+        if err = utils.FileAppend(pout, name); err != nil {
+            return err
+        }
+		os.Remove(name)
     }
     return nil
 }

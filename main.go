@@ -306,7 +306,7 @@ func startDownload(realLink [][]string) error {
 func callFF(url string, num int) {
 	// defer wg.Done()
 	// go_log.Println("Start downloading Episode ", num)
-	fileName := fmt.Sprintf("%s/%02d.mp4", id, num)
+	fileName := fmt.Sprintf("%s/%02d.mkv", id, num)
 	// cmd := exec.Command("./ffmpeg", "-i", url, fileName)
 	// err := cmd.Run()
 	// if err != nil {
@@ -322,6 +322,7 @@ func callFF(url string, num int) {
 		return
 	}
 
+    /*
 	if isSecondary == false {
 		// resolutions := h.GetResolutions()
 		// fmt.Println("Choose resolution/bandwidth:")
@@ -344,6 +345,7 @@ func callFF(url string, num int) {
 			return
 		}
 	}
+    */
 
 	downloaded = 0
 	decrypted = 0
@@ -356,11 +358,11 @@ func callFF(url string, num int) {
 
     // start merge .ts file.
     if isUseFFmpeg {
-        // if err = h.FFMerge(); err != nil {
-		//     log.Error("%s", err)
-        // }
-        syncChan<-h
-
+        if err = h.TempMerge(); err != nil {
+            log.Error("%s", err)
+        } else {
+            syncChan<-h
+        }
     } else {
         if err = h.AppendMerge(); err != nil {
 		    log.Error("%s", err)
@@ -379,7 +381,7 @@ var isUseFFmpeg bool = false
 
 var syncChan chan * hlss.Hlss
 var msgChan chan string
-var syncWorkNum int = 4
+var syncWorkNum int = 0
 
 func main() {
 	// argument parse.
@@ -390,7 +392,7 @@ func main() {
 	flag.StringVar(&url, "url", "", "download single link.")
 	flag.IntVar(&resourceIndex, "resource", 0, "select the available resource link number.")
 
-	flag.IntVar(&syncWorkNum, "f", 4, "if use ffmepg merge, it set ffmpeg process count.")
+	flag.IntVar(&syncWorkNum, "f", 2, "if use ffmepg merge, it set ffmpeg process count.")
 
 	// flag.StringVar(&aesKey, "k", "", "AES key (base64 encoded or http url)")
 	// flag.StringVar(&url, "u", "", "Url master m3u8")
@@ -407,7 +409,7 @@ func main() {
     _, err := exec.LookPath("ffmpeg")
     if err == nil {
         isUseFFmpeg = true
-        fmt.Println("found ffmpeg site, use it merge video file.")
+        fmt.Println("found ffmpeg site, use it merge video file. ffmpeg version need 4.3 or above.")
     }
 
     dwnWorkers = 16
@@ -418,7 +420,7 @@ func main() {
 
     // download single link.
     if url != "" {
-        err := singleLinkDownload(url, "one.mp4")
+        err := singleLinkDownload(url, "one.mkv")
         if err != nil {
             go_log.Fatalln(err)
         }
@@ -524,10 +526,10 @@ func singleLinkDownload(url string, fileName string) error {
 		return err
 	}
 
-    i := 0
-    if err = h.SetResolution(i); err != nil {
-        return err
-    }
+    // i := 0
+    // if err = h.SetResolution(i); err != nil {
+    //     return err
+    // }
 
 	downloaded = 0
 	decrypted = 0
@@ -537,12 +539,18 @@ func singleLinkDownload(url string, fileName string) error {
         return err
 	}
     if isUseFFmpeg {
+        if err = h.TempMerge(); err != nil {
+            log.Error("%s", err)
+            return err
+        }
         if err = h.FFMerge(); err != nil {
 		    log.Error("%s", err)
+            return err
         }
     } else {
         if err = h.AppendMerge(); err != nil {
 		    log.Error("%s", err)
+            return err
         }
     }
     return nil

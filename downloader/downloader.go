@@ -128,6 +128,7 @@ func (d *downloader) SetReferer(referer string) {
 }
 
 func (d *downloader) StartDownload() error {
+    defer d.progress.Stop()
 	go func() {
 		for _, url := range d.urls {
 			d.jobs <- url
@@ -135,10 +136,9 @@ func (d *downloader) StartDownload() error {
 		close(d.jobs)
 	}()
 
-	done := make(chan struct{})
+	// done := make(chan struct{})
 	d.wg.Wait()
-	close(done)
-    d.progress.Stop()
+	// close(done)
 
 	return nil
 }
