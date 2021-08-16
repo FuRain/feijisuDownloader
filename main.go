@@ -3,7 +3,7 @@ package main
 import (
 	"github.com/evilsocket/islazy/log"
 
-    go_log "log"
+	go_log "log"
 
 	"crypto/tls"
 	"errors"
@@ -12,18 +12,20 @@ import (
 	"io/ioutil"
 	"net/http"
 	"os"
+
 	// "runtime"
+	"os/exec"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
-    "os/exec"
 
 	"feijisu/hlss"
+	"feijisu/utils"
 )
 
 var (
-	aesKey      string
+	aesKey string
 	// url         string
 	cookieFile  string
 	outFile     string
@@ -37,8 +39,8 @@ var (
 )
 
 type videoInfo struct {
-    link   string
-    detail string
+	link   string
+	detail string
 }
 
 func decryptCallback(file string, done int, total int) {
@@ -191,58 +193,67 @@ func parseLink(link string) ([][]string, error) {
 }
 
 func parseLinkV2(link string) ([][]videoInfo, error) {
-    var realLink [][]videoInfo
-    jsLine := strings.Split(link, ";")
-    numLine := len(jsLine) - 1
-    i := 0
+	var realLink [][]videoInfo
+	jsLine := strings.Split(link, ";")
+	numLine := len(jsLine) - 1
+	i := 0
 
-    for ; i < numLine; i ++ {
-        numSer, err := strconv.Atoi(strings.SplitN(jsLine[i], "=", 2)[1])
-        if err != nil {
-            return nil, errors.New("call strconv.Atoi failed, cause: " + jsLine[i])
-        }
+	for ; i < numLine; i++ {
+		numSer, err := strconv.Atoi(strings.SplitN(jsLine[i], "=", 2)[1])
+		if err != nil {
+			return nil, errors.New("call strconv.Atoi failed, cause: " + jsLine[i])
+		}
 
-        bLink := i + 4
-        eLink := bLink + numSer
-        var linkArr []videoInfo
+		bLink := i + 4
+		eLink := bLink + numSer
+		var linkArr []videoInfo
 
-        for ; bLink < eLink && bLink < numLine; bLink ++ {
+		for ; bLink < eLink && bLink < numLine; bLink++ {
 			tmpSubStr := strings.SplitN(jsLine[bLink], "=", 2)[1]
-            subData := strings.Split(strings.ReplaceAll(tmpSubStr, `"`, ""), ",")
+			subData := strings.Split(strings.ReplaceAll(tmpSubStr, `"`, ""), ",")
 
-            tmpLink := subData[0]
-            detail := strings.ReplaceAll(subData[len(subData) - 1], "%u", "\\u")
-            zhDetail, err := zhToUnicode([]byte(detail))
-            if err != nil {
-                zhDetail = []byte(detail)
-            }
-            // fmt.Println(tmpSubStr, "==============", string(zhDetail))
-            linkArr = append(linkArr, videoInfo {
-                link : tmpLink,
-                detail : string(zhDetail),
-            })
-        }
+			tmpLink := subData[0]
+			detail := strings.ReplaceAll(subData[len(subData)-1], "%u", "\\u")
+			zhDetail, err := zhToUnicode([]byte(detail))
+			if err != nil {
+				zhDetail = []byte(detail)
+			}
+			// fmt.Println(tmpSubStr, "==============", string(zhDetail))
+			linkArr = append(linkArr, videoInfo{
+				link:   tmpLink,
+				detail: string(zhDetail),
+			})
+		}
 
-        if len(linkArr) > 0 {
-            realLink = append(realLink, linkArr)
-        }
-        i = eLink // site in the "lianzaijs_1_ed = 1;"
-    }
+		if len(linkArr) > 0 {
+			realLink = append(realLink, linkArr)
+		}
+		i = eLink // site in the "lianzaijs_1_ed = 1;"
+	}
 	return realLink, nil
 }
 
 func startDownload(realLink [][]string) error {
 	validIndex := -1
+	downM3u8 := false
+	downMp4 := false
 
 	for key, val := range realLink {
 		tempFlag := false
 		for _, link := range val {
-			if strings.HasSuffix(link, ".m3u8") {
+			// add mp4 video support download.
+
+			switch {
+			case strings.HasSuffix(link, ".m3u8"):
 				tempFlag = true
-			} else {
+				downM3u8 = true
+			case strings.HasSuffix(link, ".mp4"):
+				tempFlag = true
+				downMp4 = true
+			default:
 				tempFlag = false
-				break
 			}
+
 		}
 
 		if tempFlag {
@@ -253,9 +264,9 @@ func startDownload(realLink [][]string) error {
 		}
 	}
 
-    if resourceIndex != 0 {
-        validIndex = resourceIndex
-    }
+	if resourceIndex != 0 {
+		validIndex = resourceIndex
+	}
 
 	if validIndex < 0 {
 		return errors.New("does not valid resource link.")
@@ -271,47 +282,68 @@ func startDownload(realLink [][]string) error {
 	// urlIndex := 0
 	urlCount := len(realLink[validIndex])
 
-    if endID > urlCount {
-        return errors.New(fmt.Sprintf("select download index error, cause: out of range. urlCount: %d", urlCount))
-    } else if endID < 0 {
-        endID = urlCount
-    }
+	if endID > urlCount {
+		return errors.New(fmt.Sprintf("select download index error, cause: out of range. urlCount: %d", urlCount))
+	} else if endID < 0 {
+		endID = urlCount
+	}
 
-    for i := startID - 1; i < endID; i ++ {
-	    callFF(realLink[validIndex][i], i+1)
-    }
-/*
-	remainder := urlCount % cpuNumber
-	result := urlCount / cpuNumber
-	wg = sync.WaitGroup{}
-	for i := 0; i < result; i++ {
-		wg.Add(cpuNumber)
-		for j := 0; j < cpuNumber; j++ {
+	for i := startID - 1; i < endID; i++ {
+		switch {
+		case downM3u8:
+			callFF(realLink[validIndex][i], i+1)
+
+		case downMp4:
+			mp4Download(realLink[validIndex][i], i+1)
+
+		default:
+			return errors.New(fmt.Sprintf("unknow video format of download."))
+		}
+
+	}
+	/*
+		remainder := urlCount % cpuNumber
+		result := urlCount / cpuNumber
+		wg = sync.WaitGroup{}
+		for i := 0; i < result; i++ {
+			wg.Add(cpuNumber)
+			for j := 0; j < cpuNumber; j++ {
+				go callFF(realLink[validIndex][urlIndex], urlIndex+1)
+				urlIndex++
+			}
+			wg.Wait()
+		}
+
+		wg.Add(remainder)
+		for i := 0; i < remainder; i++ {
 			go callFF(realLink[validIndex][urlIndex], urlIndex+1)
 			urlIndex++
 		}
 		wg.Wait()
-	}
-
-	wg.Add(remainder)
-	for i := 0; i < remainder; i++ {
-		go callFF(realLink[validIndex][urlIndex], urlIndex+1)
-		urlIndex++
-	}
-	wg.Wait()
-*/
+	*/
 	return nil
+}
+
+func mp4Download(url string, num int) {
+	var fileName string
+	if videoPrefix != "" {
+		fileName = fmt.Sprintf("%s/%s_%02d.mp4", id, videoPrefix, num)
+	} else {
+		fileName = fmt.Sprintf("%s/%02d.mp4", id, num)
+	}
+	utils.DownloadShowBar(url, fileName)
+	os.Exit(0)
 }
 
 func callFF(url string, num int) {
 	// defer wg.Done()
 	// go_log.Println("Start downloading Episode ", num)
-    var fileName string
-    if videoPrefix != "" {
-	    fileName = fmt.Sprintf("%s/%s_%02d.mkv", id, videoPrefix, num)
-    } else {
-	    fileName = fmt.Sprintf("%s/%02d.mkv", id, num)
-    }
+	var fileName string
+	if videoPrefix != "" {
+		fileName = fmt.Sprintf("%s/%s_%02d.mkv", id, videoPrefix, num)
+	} else {
+		fileName = fmt.Sprintf("%s/%02d.mkv", id, num)
+	}
 
 	// cmd := exec.Command("./ffmpeg", "-i", url, fileName)
 	// err := cmd.Run()
@@ -322,7 +354,7 @@ func callFF(url string, num int) {
 
 	var binaryKey []byte
 	var keyUrl string
-	h, err := hlss.New(url, binaryKey, fileName, downloadCallback, decryptCallback, dwnWorkers, cookieFile, referer, keyUrl, id + "/")
+	h, err := hlss.New(url, binaryKey, fileName, downloadCallback, decryptCallback, dwnWorkers, cookieFile, referer, keyUrl, id+"/")
 	if err != nil {
 		log.Error("%s", err)
 		return
@@ -335,8 +367,8 @@ func callFF(url string, num int) {
 		// 	fmt.Printf(" %d) %s\n", i, k)
 		// }
 
-        i := 0
-        // fmt.Printf("default select resolution/bandwidth is %d\n", i)
+		i := 0
+		// fmt.Printf("default select resolution/bandwidth is %d\n", i)
 
 		// fmt.Print("> ")
 		// var i int
@@ -360,18 +392,18 @@ func callFF(url string, num int) {
 		log.Error("%s", err)
 	}
 
-    // start merge .ts file.
-    if isUseFFmpeg {
-        if err = h.TempMerge(); err != nil {
-            log.Error("%s", err)
-        } else {
-            syncChan<-h
-        }
-    } else {
-        if err = h.AppendMerge(); err != nil {
-		    log.Error("%s", err)
-        }
-    }
+	// start merge .ts file.
+	if isUseFFmpeg {
+		if err = h.TempMerge(); err != nil {
+			log.Error("%s", err)
+		} else {
+			syncChan <- h
+		}
+	} else {
+		if err = h.AppendMerge(); err != nil {
+			log.Error("%s", err)
+		}
+	}
 
 }
 
@@ -383,7 +415,7 @@ var url string
 var resourceIndex int
 var isUseFFmpeg bool = false
 
-var syncChan chan * hlss.Hlss
+var syncChan chan *hlss.Hlss
 var msgChan chan string
 var syncWorkNum int = 0
 var videoPrefix string
@@ -411,50 +443,49 @@ func main() {
 
 	flag.Parse()
 
-    // Check whether ffmpeg can be used.
-    _, err := exec.LookPath("ffmpeg")
-    if err == nil {
-        isUseFFmpeg = true
-        fmt.Println("found ffmpeg site, use it merge video file. ffmpeg version need 4.3 or above.")
-    }
+	// Check whether ffmpeg can be used.
+	_, err := exec.LookPath("ffmpeg")
+	if err == nil {
+		isUseFFmpeg = true
+		fmt.Println("found ffmpeg site, use it merge video file. ffmpeg version need 4.3 or above.")
+	}
 
-    dwnWorkers = 16
+	dwnWorkers = 16
 
 	// get cpu number.
 	// cpuNumber = runtime.NumCPU()
-    cpuNumber = 1
+	cpuNumber = 1
 
-    // download single link.
-    if url != "" {
-        var singleVideo string
-        if videoPrefix != "" {
-            singleVideo = videoPrefix + ".mkv"
-        } else {
-            singleVideo = "one.mkv"
-        }
+	// download single link.
+	if url != "" {
+		var singleVideo string
+		if videoPrefix != "" {
+			singleVideo = videoPrefix + ".mkv"
+		} else {
+			singleVideo = "one.mkv"
+		}
 
-        err := singleLinkDownload(url, singleVideo)
-        if err != nil {
-            go_log.Fatalln(err)
-        }
-        return
-    }
+		err := singleLinkDownload(url, singleVideo)
+		if err != nil {
+			go_log.Fatalln(err)
+		}
+		return
+	}
 
 	if id == "" {
 		flag.PrintDefaults()
 		return
 	}
 
-    if endID >= 0  && startID > endID {
-        fmt.Println("select download index error, cause: out of range.")
-        return
-    }
+	if endID >= 0 && startID > endID {
+		fmt.Println("select download index error, cause: out of range.")
+		return
+	}
 
-    if startID <= 0 {
-        fmt.Println("select download index error, cause: out of range.")
-        return
-    }
-
+	if startID <= 0 {
+		fmt.Println("select download index error, cause: out of range.")
+		return
+	}
 
 	link, err := getLink(id)
 	if err != nil {
@@ -482,49 +513,50 @@ func main() {
 		return
 	}
 
-    downLink := make([][]string, len(realLink))
-    for i := 0; i < len(realLink); i ++ {
-        downLink[i] = make([]string, len(realLink[i]))
-        for j := 0; j < len(realLink[i]); j ++ {
-            downLink[i][j] = realLink[i][j].link
-        }
-    }
+	downLink := make([][]string, len(realLink))
+	for i := 0; i < len(realLink); i++ {
+		downLink[i] = make([]string, len(realLink[i]))
+		for j := 0; j < len(realLink[i]); j++ {
+			downLink[i][j] = realLink[i][j].link
+		}
+	}
 
-    wg := sync.WaitGroup{}
-    if isUseFFmpeg {
-        wg.Add(1)
-        go func() {
-            processFFMerge()
-            wg.Done()
-        }()
-    }
+	wg := sync.WaitGroup{}
+	if isUseFFmpeg {
+		wg.Add(1)
+		go func() {
+			processFFMerge()
+			wg.Done()
+		}()
+	}
 
 	err = startDownload(downLink)
 	if err != nil {
 		fmt.Println(err)
 		return
 	}
-    close(syncChan)
 
-    if isUseFFmpeg {
-        go_log.Println("wait all ffmpeg merge file finish.")
-    }
+	close(syncChan)
 
-    for val := range msgChan {
-        go_log.Println(val)
-    }
+	if isUseFFmpeg {
+		go_log.Println("wait all ffmpeg merge file finish.")
+	}
 
-    wg.Wait()
+	for val := range msgChan {
+		go_log.Println(val)
+	}
+
+	wg.Wait()
 
 	return
 }
 
 func zhToUnicode(raw []byte) ([]byte, error) {
-    str, err := strconv.Unquote(strings.Replace(strconv.Quote(string(raw)), `\\u`, `\u`, -1))
-    if err != nil {
-        return nil, err
-    }
-    return []byte(str), nil
+	str, err := strconv.Unquote(strings.Replace(strconv.Quote(string(raw)), `\\u`, `\u`, -1))
+	if err != nil {
+		return nil, err
+	}
+	return []byte(str), nil
 }
 
 func singleLinkDownload(url string, fileName string) error {
@@ -534,66 +566,66 @@ func singleLinkDownload(url string, fileName string) error {
 	}
 	var binaryKey []byte
 	var keyUrl string
-	h, err := hlss.New(url, binaryKey, "videoDown/" + fileName, downloadCallback, decryptCallback, dwnWorkers, cookieFile, referer, keyUrl, "videoDown/")
+	h, err := hlss.New(url, binaryKey, "videoDown/"+fileName, downloadCallback, decryptCallback, dwnWorkers, cookieFile, referer, keyUrl, "videoDown/")
 	if err != nil {
 		return err
 	}
 
-    i := 0
-    if err = h.SetResolution(i); err != nil {
-        return err
-    }
+	i := 0
+	if err = h.SetResolution(i); err != nil {
+		return err
+	}
 
 	downloaded = 0
 	decrypted = 0
 	segments = h.GetTotSegments()
 
 	if err = h.ExtractVideo(); err != nil {
-        return err
+		return err
 	}
-    if isUseFFmpeg {
-        if err = h.TempMerge(); err != nil {
-            log.Error("%s", err)
-            return err
-        }
-        if err = h.FFMerge(); err != nil {
-		    log.Error("%s", err)
-            return err
-        }
-    } else {
-        if err = h.AppendMerge(); err != nil {
-		    log.Error("%s", err)
-            return err
-        }
-    }
-    return nil
+	if isUseFFmpeg {
+		if err = h.TempMerge(); err != nil {
+			log.Error("%s", err)
+			return err
+		}
+		if err = h.FFMerge(); err != nil {
+			log.Error("%s", err)
+			return err
+		}
+	} else {
+		if err = h.AppendMerge(); err != nil {
+			log.Error("%s", err)
+			return err
+		}
+	}
+	return nil
 }
 
 func processFFMerge() {
-    wg := sync.WaitGroup{}
-    wg.Add(syncWorkNum)
-    var err error
-    for i := 0; i < syncWorkNum; i ++ {
-        go func() {
-            for {
-                val, ok := <-syncChan
-                if ! ok {
-                    break
-                }
-                if err = val.FFMerge(); err != nil {
-                    log.Error("%s", err)
-                } else {
-                    msgChan <- fmt.Sprintf("%s merge finish!", val.FileAndPath)
-                }
-            }
-            wg.Done()
-        }()
-    }
-    wg.Wait()
-    close(msgChan)
+	wg := sync.WaitGroup{}
+	wg.Add(syncWorkNum)
+	var err error
+	for i := 0; i < syncWorkNum; i++ {
+		go func() {
+			for {
+				val, ok := <-syncChan
+				if !ok {
+					break
+				}
+				if err = val.FFMerge(); err != nil {
+					log.Error("%s", err)
+				} else {
+					msgChan <- fmt.Sprintf("%s merge finish!", val.FileAndPath)
+				}
+			}
+			wg.Done()
+		}()
+	}
+	wg.Wait()
+	close(msgChan)
 }
 
 func init() {
-    syncChan = make(chan * hlss.Hlss, 1000)
-    msgChan  = make(chan string, 1000)
+	syncChan = make(chan *hlss.Hlss, 1000)
+	msgChan = make(chan string, 1000)
 }
