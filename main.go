@@ -295,12 +295,16 @@ func startDownload(realLink [][]string) error {
 
 		case downMp4:
 			mp4Download(realLink[validIndex][i], i+1)
-
 		default:
 			return errors.New(fmt.Sprintf("unknow video format of download."))
 		}
 
 	}
+
+	if downMp4 {
+		os.Exit(0)
+	}
+
 	/*
 		remainder := urlCount % cpuNumber
 		result := urlCount / cpuNumber
@@ -332,7 +336,7 @@ func mp4Download(url string, num int) {
 		fileName = fmt.Sprintf("%s/%02d.mp4", id, num)
 	}
 	utils.DownloadShowBar(url, fileName)
-	os.Exit(0)
+
 }
 
 func callFF(url string, num int) {
