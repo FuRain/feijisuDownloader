@@ -17,10 +17,22 @@ import (
 	"time"
 )
 
+// func GetBaseUrl(url string) string {
+// 	i := strings.LastIndex(url, "/")
+// 	return url[0 : i+1]
+// }
+
 func GetBaseUrl(url string) string {
-	i := strings.LastIndex(url, "/")
-	return url[0 : i+1]
+	var tempPos int = 0
+	if strings.HasPrefix(url, "http://") {
+		tempPos = 7
+	} else if strings.HasPrefix(url, "https://") {
+		tempPos = 8
+	}
+	i := strings.Index(url[tempPos:], "/")
+	return url[0 : i+tempPos]
 }
+
 
 func GetFileFromUrl(url string) string {
 	i := strings.LastIndex(url, "/")
