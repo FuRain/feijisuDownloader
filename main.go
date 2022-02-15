@@ -62,7 +62,8 @@ func downloadCallback(file string, done int, total int) {
 	fmt.Printf("\r[@] Downloading %d/%d\n", done, total)
 }
 
-const resourceLink string = "http://t.mtyee.com/ne2/s%s.js"
+// const resourceLink string = "http://t.mtyee.com/ne2/s%s.js"
+const resourceLink string = "http://d.gqyy8.com:8077/ne2/s%s.js?1621849006"
 const webHome string = "http://www.feijisu5.com/"
 
 func verifyLink(realLink string) bool {
